@@ -9,7 +9,8 @@ Built for a case study. Work in progress.
 | Step | What it does | Status |
 |---|---|---|
 | 1. Collect | Find companies on Google Maps across a grid covering Berlin | done (`collect_places.py`) |
-| 2. Merge and clean | Remove duplicates, keep only Berlin, add website and phone | planned |
+| 2a. Filter | Label each place: likely property manager, unclear, competitor, or excluded (with reason) | done (`filter_candidates.py`) |
+| 2b. Details | Add website and phone for likely and unclear candidates | planned |
 | 3. Crawl | Save each company's home, Impressum, services, careers and about pages | planned |
 | 4. Extract | An LLM fills the KPI columns, each answer with a quote and source link | planned |
 | 5. Check | Reject any answer whose quote is not on the source page | planned |
@@ -26,6 +27,25 @@ Google Places Text Search returns at most 60 results per search, so one search f
 - reports `tiles_still_capped` in the log; 0 means no area was too crowded to cover
 
 The 4 x 4 start is a starting choice, not a tuned value. The split rule corrects it where companies are dense.
+
+A full tile with no Berlin company in it (for example around Potsdam) is not split further, so calls are not spent outside Berlin. Trade-off: a tile on the city border whose first 60 results are all outside Berlin is not explored deeper.
+
+## Step 2a: filter
+
+Google matches search terms loosely. In the first test run, only about 40% of Berlin results were clearly property managers; the rest were estate agents, builders, a plumber, a lawyer, a care home and one metering company. `filter_candidates.py` labels every row and never deletes anything:
+
+| Label | Meaning |
+|---|---|
+| `likely_pm` | Name (or company name in the address) says property management |
+| `unclear` | Could be a property manager, estate agent or housing company; the website check decides |
+| `competitor` | Metering service provider (ista, Techem, KALO, ...): not a lead |
+| `excluded` | Outside Berlin, permanently closed, a building listing, or a wrong trade |
+
+Each row also gets `relevance_reason` and a `shared_address` flag (several listings at one address, e.g. an estate agent and a property manager run from the same office).
+
+```bash
+python filter_candidates.py
+```
 
 ### Cost safety
 
