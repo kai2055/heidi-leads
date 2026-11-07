@@ -45,9 +45,11 @@ class FakeSession:
     """Tiles wider than `dense_size` degrees are 'crowded' and return 60 results
     over 3 pages; smaller tiles return 5 results on one page."""
 
-    def __init__(self, dense_size=0.03, status=200):
+    def __init__(self, dense_size=0.03, status=200, postcode="10115", locality="Berlin"):
         self.dense_size = dense_size
         self.status = status
+        self.postcode = postcode
+        self.locality = locality
         self.requests = 0
 
     def post(self, url, headers, json, timeout):
@@ -60,7 +62,8 @@ class FakeSession:
         page = int(json.get("pageToken", 0))
         n = 20 if crowded else 5
         base = f"{rect['low']['latitude']:.4f}-{rect['low']['longitude']:.4f}-{page}"
-        data = {"places": [fake_place(f"{base}-{i}") for i in range(n)]}
+        data = {"places": [fake_place(f"{base}-{i}", self.postcode, self.locality)
+                           for i in range(n)]}
         if crowded and page < 2:
             data["nextPageToken"] = str(page + 1)
         return FakeResponse(200, data)
@@ -136,6 +139,15 @@ def test_tile_still_capped_is_reported_when_max_depth_reached():
     client = make_client(session)
     _, stats = cp.collect(client, "t", terms=["Hausverwaltung"], start_grid=1)
     assert stats["tiles_still_capped"] > 0
+
+
+def test_full_tile_outside_berlin_is_not_split():
+    session = FakeSession(dense_size=0.0, postcode="14467", locality="Potsdam")
+    client = make_client(session)
+    _, stats = cp.collect(client, "t", terms=["Hausverwaltung"])
+    assert stats["tiles_split"] == 0
+    assert stats["tiles_skipped_outside_berlin"] == 16
+    assert client.calls == 16 * cp.MAX_PAGES
 
 
 def test_hard_stop_never_exceeds_max_calls():

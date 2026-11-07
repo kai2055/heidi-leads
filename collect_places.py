@@ -6,6 +6,8 @@ What it does
 - Google returns max 60 results per search. If a grid tile hits 60,
   the tile is split into 4 smaller tiles and searched again (more detail
   where companies are dense, e.g. Mitte, Charlottenburg).
+- A full tile with no Berlin company in it (e.g. around Potsdam) is not
+  split, so no calls are spent outside Berlin.
 - Asks only for "Pro" fields (no website, no phone) -> cheaper SKU with
   5,000 free calls per month. Website + phone come in a later step.
 - HARD STOP: never makes more than --max-calls requests (default 1000).
@@ -227,18 +229,25 @@ def add_place(places, place, query, collected_at):
 # ----------------------------------------------------------------- collect
 def search_tile(client, query, tile, depth, places, stats, collected_at):
     found = 0
+    found_in_berlin = 0
     token = None
     for _ in range(MAX_PAGES):
         data = client.search(query, tile, token)
         for place in data.get("places", []):
             found += 1
             add_place(places, place, query, collected_at)
+            if places.get(place.get("id"), {}).get("in_berlin"):
+                found_in_berlin += 1
         token = data.get("nextPageToken")
         if not token:
             break
         client.sleep(1)  # small pause before asking for the next page
 
     stats["tiles_searched"] += 1
+    # Full tile but no Berlin company in it (e.g. Potsdam): do not spend more calls there
+    if found >= CAP and found_in_berlin == 0:
+        stats["tiles_skipped_outside_berlin"] += 1
+        return
     # Hit Google's 60 cap -> there may be more; search 4 smaller tiles
     if found >= CAP and depth < MAX_SPLIT_DEPTH:
         stats["tiles_split"] += 1
@@ -252,6 +261,7 @@ def collect(client, collected_at, terms=SEARCH_TERMS, bbox=BERLIN_BBOX, start_gr
     """Run all searches. Returns (places, stats). Stops cleanly at the call limit."""
     places = {}
     stats = {"tiles_searched": 0, "tiles_split": 0, "tiles_still_capped": 0,
+             "tiles_skipped_outside_berlin": 0,
              "stopped_by_limit": False, "stopped_by_error": ""}
     try:
         for query in terms:
