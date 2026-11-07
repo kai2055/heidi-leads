@@ -10,7 +10,7 @@ Built for a case study. Work in progress.
 |---|---|---|
 | 1. Collect | Find companies on Google Maps across a grid covering Berlin | done (`collect_places.py`) |
 | 2a. Filter | Label each place: likely property manager, unclear, competitor, or excluded (with reason) | done (`filter_candidates.py`) |
-| 2b. Details | Add website and phone for likely and unclear candidates | planned |
+| 2b. Details | Add website and phone: all likely candidates plus a random sample of unclear ones, within the free allowance | done (`fetch_details.py`) |
 | 3. Crawl | Save each company's home, Impressum, services, careers and about pages | planned |
 | 4. Extract | An LLM fills the KPI columns, each answer with a quote and source link | planned |
 | 5. Check | Reject any answer whose quote is not on the source page | planned |
@@ -47,6 +47,23 @@ Each row also gets `relevance_reason` and a `shared_address` flag (several listi
 python filter_candidates.py
 ```
 
+## Step 2b: details (website and phone)
+
+Place Details with website and phone is billed at the Enterprise tier, with 1,000 free calls per month. To stay inside that:
+
+- every `likely_pm` candidate is looked up
+- the rest of the 1,000 is a random sample of `unclear` candidates (fixed seed 42, so it is repeatable)
+- the sample shows what share of the unclear group are real property managers, so the rest can be estimated and finished later if the cost is justified
+
+Safety: a hard stop per run (`--max-calls`), and resume: places already in `data/details.csv` are never fetched again.
+
+```bash
+python fetch_details.py --max-calls 5   # small test run
+python fetch_details.py                 # full run (continues where the test stopped)
+```
+
+Output: `data/enriched_candidates.csv` (every candidate, with `selection_group`, website, phone and Google rating).
+
 ### Cost safety
 
 - Requests only Pro-tier fields (no website, phone or rating), which keeps calls on the cheaper SKU with a larger free monthly allowance.
@@ -72,7 +89,7 @@ cp .env.example .env              # then paste your Google Places API key into .
 
 ```bash
 python collect_places.py --max-calls 20   # small test run
-python collect_places.py                  # full run
+python collect_places.py --max-depth 4    # full run, one extra split level for crowded areas
 ```
 
 ## Tests

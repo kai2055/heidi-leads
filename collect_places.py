@@ -227,7 +227,8 @@ def add_place(places, place, query, collected_at):
 
 
 # ----------------------------------------------------------------- collect
-def search_tile(client, query, tile, depth, places, stats, collected_at):
+def search_tile(client, query, tile, depth, places, stats, collected_at,
+                max_depth=MAX_SPLIT_DEPTH):
     found = 0
     found_in_berlin = 0
     token = None
@@ -249,15 +250,16 @@ def search_tile(client, query, tile, depth, places, stats, collected_at):
         stats["tiles_skipped_outside_berlin"] += 1
         return
     # Hit Google's 60 cap -> there may be more; search 4 smaller tiles
-    if found >= CAP and depth < MAX_SPLIT_DEPTH:
+    if found >= CAP and depth < max_depth:
         stats["tiles_split"] += 1
         for child in split_tile(tile):
-            search_tile(client, query, child, depth + 1, places, stats, collected_at)
+            search_tile(client, query, child, depth + 1, places, stats, collected_at, max_depth)
     elif found >= CAP:
         stats["tiles_still_capped"] += 1
 
 
-def collect(client, collected_at, terms=SEARCH_TERMS, bbox=BERLIN_BBOX, start_grid=START_GRID):
+def collect(client, collected_at, terms=SEARCH_TERMS, bbox=BERLIN_BBOX, start_grid=START_GRID,
+            max_depth=MAX_SPLIT_DEPTH):
     """Run all searches. Returns (places, stats). Stops cleanly at the call limit."""
     places = {}
     stats = {"tiles_searched": 0, "tiles_split": 0, "tiles_still_capped": 0,
@@ -267,7 +269,7 @@ def collect(client, collected_at, terms=SEARCH_TERMS, bbox=BERLIN_BBOX, start_gr
         for query in terms:
             print(f"\nSearching: {query}")
             for tile in make_grid(bbox, start_grid):
-                search_tile(client, query, tile, 0, places, stats, collected_at)
+                search_tile(client, query, tile, 0, places, stats, collected_at, max_depth)
                 print(f"  calls used: {client.calls:4d} | unique places: {len(places)}")
     except BudgetReached:
         stats["stopped_by_limit"] = True
@@ -278,7 +280,7 @@ def collect(client, collected_at, terms=SEARCH_TERMS, bbox=BERLIN_BBOX, start_gr
     return places, stats
 
 
-def save(places, stats, client, started, run_id, out_dir=OUT_DIR):
+def save(places, stats, client, started, run_id, out_dir=OUT_DIR, max_depth=MAX_SPLIT_DEPTH):
     os.makedirs(out_dir, exist_ok=True)
     rows = sorted(places.values(), key=lambda r: (not r["in_berlin"], r["name"].lower()))
     if rows:
@@ -292,6 +294,7 @@ def save(places, stats, client, started, run_id, out_dir=OUT_DIR):
         "started_at": started,
         "finished_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "search_terms": SEARCH_TERMS,
+        "max_split_depth": max_depth,
         "api_calls_used": client.calls,
         "max_calls": client.max_calls,
         "unique_places": len(rows),
@@ -308,6 +311,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--max-calls", type=int, default=1000,
                         help="hard stop: maximum API requests for this run")
+    parser.add_argument("--max-depth", type=int, default=MAX_SPLIT_DEPTH,
+                        help="how many times a crowded tile may be split (default 3)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -325,9 +330,9 @@ def main():
 
     with open(raw_path, "w", encoding="utf-8") as raw_log:
         client = PlacesClient(api_key, args.max_calls, raw_log=raw_log)
-        places, stats = collect(client, started)
+        places, stats = collect(client, started, max_depth=args.max_depth)
 
-    summary = save(places, stats, client, started, run_id)
+    summary = save(places, stats, client, started, run_id, max_depth=args.max_depth)
     print("\nDone.")
     print(json.dumps(summary, indent=2))
     print(f"\nSaved: {OUT_DIR}/raw_places.csv and {raw_path}")
