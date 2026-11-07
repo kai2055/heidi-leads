@@ -11,7 +11,7 @@ Built for a case study. Work in progress.
 | 1. Collect | Find companies on Google Maps across a grid covering Berlin | done (`collect_places.py`) |
 | 2a. Filter | Label each place: likely property manager, unclear, competitor, or excluded (with reason) | done (`filter_candidates.py`) |
 | 2b. Details | Add website and phone: all likely candidates plus a random sample of unclear ones, within the free allowance | done (`fetch_details.py`) |
-| 3. Crawl | Save each company's home, Impressum, services, careers and about pages | planned |
+| 3. Crawl | Save each company's home, Impressum, services, about and careers pages as clean text | done (`crawl_websites.py`) |
 | 4. Extract | An LLM fills the KPI columns, each answer with a quote and source link | planned |
 | 5. Check | Reject any answer whose quote is not on the source page | planned |
 | 6. Score | Rule-based Fit and Ease scores, then an A/B/C grade with a reason | planned |
@@ -63,6 +63,25 @@ python fetch_details.py                 # full run (continues where the test sto
 ```
 
 Output: `data/enriched_candidates.csv` (every candidate, with `selection_group`, website, phone and Google rating).
+
+## Step 3: crawl websites
+
+For each selected company with a website, `crawl_websites.py` saves up to 5 pages as clean text: the homepage plus the Impressum, services, about/team and careers pages, found by words in their links (German and English).
+
+- Respects `robots.txt`; an honest user agent links to this repository.
+- At most 1 request per second per website; 8 websites in parallel.
+- Companies sharing one website are crawled once.
+- "Websites" that are really Facebook, ImmoScout or similar profile pages are skipped.
+- TLS certificates are always verified; broken ones are recorded as `ssl_error`.
+- Sites with almost no text (usually JavaScript-only) are marked `low_text`.
+- Resume: websites already in `data/crawl_status.csv` are skipped.
+
+```bash
+python crawl_websites.py --limit 10   # small test run
+python crawl_websites.py              # all websites
+```
+
+Output: `data/pages.jsonl` (one line per page: text, URL, page type, e-mail addresses shown) and `data/crawl_status.csv` (one row per website).
 
 ### Cost safety
 
