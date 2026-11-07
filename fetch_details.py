@@ -12,6 +12,8 @@ so the rest can be estimated and finished later if it is worth the cost.
 Safety
 - HARD STOP at --max-calls requests in one run.
 - RESUME: places already in data/details.csv are skipped, so a re-run never pays twice.
+- PACING: at most --per-minute requests per minute (default 100); if Google still
+  answers 429 "too many requests", the script waits a full minute and tries again.
 - Every raw response is saved to data/raw/details_responses_<run_id>.jsonl.
 
 Input : data/candidates.csv (from filter_candidates.py)
@@ -87,20 +89,36 @@ def select_places(candidates, total_budget, already_done, seed=SAMPLE_SEED):
 
 
 # ----------------------------------------------------------------- API client
+RATE_LIMIT_WAIT = 60    # seconds to wait after Google says "too many requests per minute"
+
+
 class DetailsClient:
-    def __init__(self, api_key, max_calls, session=None, raw_log=None, sleep=time.sleep):
+    def __init__(self, api_key, max_calls, session=None, raw_log=None, sleep=time.sleep,
+                 per_minute=100, clock=time.monotonic):
         self.api_key = api_key
         self.max_calls = max_calls
         self.calls = 0
         self.session = session or requests.Session()
         self.raw_log = raw_log
         self.sleep = sleep
+        self.clock = clock
+        self.min_interval = 60.0 / per_minute if per_minute else 0.0
+        self._last_call = None
+
+    def _pace(self):
+        """Wait so that we never send more than `per_minute` requests per minute."""
+        if self._last_call is not None and self.min_interval:
+            wait = self.min_interval - (self.clock() - self._last_call)
+            if wait > 0:
+                self.sleep(wait)
+        self._last_call = self.clock()
 
     def get(self, place_id):
         headers = {"X-Goog-Api-Key": self.api_key, "X-Goog-FieldMask": FIELD_MASK}
         for attempt in range(4):
             if self.calls >= self.max_calls:
                 raise BudgetReached()
+            self._pace()
             self.calls += 1
             resp = self.session.get(URL.format(place_id=place_id), headers=headers, timeout=30)
             data = resp.json() if resp.status_code == 200 else {"error": resp.text[:1000]}
@@ -110,7 +128,11 @@ class DetailsClient:
                 return "ok", data
             if resp.status_code == 404:
                 return "not_found", {}
-            if resp.status_code in (429, 500, 503) and attempt < 3:
+            if resp.status_code == 429 and attempt < 3:
+                print(f"  ! HTTP 429 (too many requests per minute), waiting {RATE_LIMIT_WAIT}s")
+                self.sleep(RATE_LIMIT_WAIT)
+                continue
+            if resp.status_code in (500, 503) and attempt < 3:
                 wait = 2 ** (attempt + 1)
                 print(f"  ! HTTP {resp.status_code}, retrying in {wait}s")
                 self.sleep(wait)
@@ -246,6 +268,8 @@ def main():
                         help="total places to look up across all runs (default 1000 = free allowance)")
     parser.add_argument("--max-calls", type=int, default=1000,
                         help="hard stop: maximum API requests in this run")
+    parser.add_argument("--per-minute", type=int, default=100,
+                        help="maximum requests per minute (Google also has a per-minute limit)")
     args = parser.parse_args()
 
     load_dotenv()
@@ -259,7 +283,7 @@ def main():
     raw_path = os.path.join(raw_dir, f"details_responses_{run_id}.jsonl")
 
     with open(raw_path, "w", encoding="utf-8") as raw_log:
-        client = DetailsClient(api_key, args.max_calls, raw_log=raw_log)
+        client = DetailsClient(api_key, args.max_calls, raw_log=raw_log, per_minute=args.per_minute)
         summary = run(client, total_budget=args.total)
 
     print("\nDone.")

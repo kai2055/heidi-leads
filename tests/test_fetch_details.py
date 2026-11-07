@@ -155,3 +155,47 @@ def test_every_call_is_logged(tmp_path):
     lines = raw.getvalue().strip().splitlines()
     assert len(lines) == c.calls == 3
     assert json.loads(lines[0])["place_id"] == "L0"
+
+
+# ----------------------------------------------------------------- pacing
+class FakeClock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_pacing_waits_between_requests():
+    clock, waits = FakeClock(), []
+
+    def sleep(seconds):
+        waits.append(seconds)
+        clock.now += seconds
+
+    c = fd.DetailsClient("fake", 10, session=FakeSession(), sleep=sleep,
+                         per_minute=60, clock=clock)
+    for pid in ["L0", "L1", "L2"]:
+        c.get(pid)
+    # 60 per minute -> one request per second; first call has no wait
+    assert waits == [pytest.approx(1.0), pytest.approx(1.0)]
+
+
+class RateLimitedOnceSession(FakeSession):
+    """Answers 429 to the first request, then works normally."""
+
+    def get(self, url, headers, timeout):
+        if self.requests == 0:
+            self.requests += 1
+            return FakeResponse(429, {"error": "RESOURCE_EXHAUSTED"})
+        return super().get(url, headers, timeout)
+
+
+def test_rate_limit_waits_a_minute_then_continues():
+    waits = []
+    c = fd.DetailsClient("fake", 10, session=RateLimitedOnceSession(),
+                         sleep=waits.append, per_minute=0)
+    status, data = c.get("L0")
+    assert status == "ok"
+    assert waits == [fd.RATE_LIMIT_WAIT]
+    assert c.calls == 2
