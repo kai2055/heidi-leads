@@ -43,6 +43,13 @@ def row(name, types="point_of_interest|establishment", in_berlin="True",
     (row("Görner Immobilien Dienstleistungsgesellschaft mbH",
          types="general_contractor|real_estate_agency"), "unclear"),
     (row("Wohnungsgenossenschaft Altglienicke eG", types="lodging|service"), "unclear"),
+    # public authorities ("Verwaltung" in the name must not make them leads)
+    (row("Senatsverwaltung für Stadtentwicklung"), "excluded"),
+    (row("Bundespolizeiinspektion Berlin, Liegenschaftsverwaltung"), "excluded"),
+    (row("Bezirksamt Mitte - Hausverwaltung"), "excluded"),
+    (row("Bundesanstalt für Immobilienaufgaben"), "excluded"),
+    # a property manager named after a place must stay a lead
+    (row("Hausverwaltung am Rathaus Steglitz GmbH"), "likely_pm"),
     # outside Berlin / closed
     (row("Hausverwaltung Potsdam", in_berlin="False"), "excluded"),
     (row("Hausverwaltung Alt", status="CLOSED_PERMANENTLY"), "excluded"),

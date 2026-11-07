@@ -94,6 +94,7 @@ def test_pick_pages_finds_each_type_once_and_skips_offsite_and_files():
 @pytest.mark.parametrize("domain,expected", [
     ("facebook.com", True), ("de-de.facebook.com", True), ("immobilienscout24.de", True),
     ("hv-test.de", False), ("myfacebook-fan.de", False),
+    ("bundespolizei.de", True), ("service.berlin.de", True),
 ])
 def test_is_directory(domain, expected):
     assert cw.is_directory(domain) is expected

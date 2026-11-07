@@ -10,7 +10,7 @@ Labels
 - likely_pm   name clearly says property management (Hausverwaltung, ...)
 - unclear     could be a property manager; the website check (later step) decides
 - competitor  metering service provider (ista, Techem, KALO, ...): not a lead
-- excluded    outside Berlin, permanently closed, building listing, or wrong trade
+- excluded    outside Berlin, permanently closed, public authority, building listing, or wrong trade
 
 Input : data/raw_places.csv
 Output: data/candidates.csv, data/filter_summary.json
@@ -40,6 +40,15 @@ PM_PATTERN = re.compile(
 COMPETITOR_PATTERN = re.compile(
     r"\bista\b|techem|\bkalo\b|calor\s*systems|brunata|metrona|minol|"
     r"noventic|qundis|messdienst|heidi\s*systems|\bmetr\b|metiundo",
+    re.IGNORECASE,
+)
+
+# Public authorities: names often contain "Verwaltung" (e.g. Senatsverwaltung), but they are not leads
+PUBLIC_BODY_PATTERN = re.compile(
+    r"polizei|bezirksamt|senatsverwaltung|senat\b|finanzamt|ministerium|bundesamt|landesamt|"
+    r"bundesanstalt|bundeswehr|jobcenter|amtsgericht|landgericht|gericht\b|"
+    r"stadtverwaltung|gemeindeverwaltung|kreisverwaltung|botschaft|konsulat|"
+    r"universit[aä]t|hochschule|bundestag|abgeordnetenhaus",
     re.IGNORECASE,
 )
 
@@ -88,6 +97,8 @@ def label(row):
         return "excluded", "outside Berlin"
     if row.get("business_status") == "CLOSED_PERMANENTLY":
         return "excluded", "permanently closed"
+    if PUBLIC_BODY_PATTERN.search(name):
+        return "excluded", "public authority or institution"
     if COMPETITOR_PATTERN.search(name):
         return "competitor", "metering service provider"
     if types & BUILDING_TYPES:
