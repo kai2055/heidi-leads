@@ -173,3 +173,19 @@ Design decisions backed by tests on the data:
 - Extraction: model and prompt choice scored against a hand-checked golden set (22 hard cases).
 - Final grades: 30 random rows (10 A, 10 C, 10 excluded by the AI), checked by hand on the live websites
   (`validate_sample.py`).
+
+## Step 8: final workbook
+
+`build_sheet.py` writes `data/heidi_leads_berlin.xlsx` with five tabs: Leads (graded A/B/C with contact,
+KPIs and the reason for every point), Unverified, Excluded (competitors first, each with a reason),
+KPI definitions, and Method & numbers (funnel, validation and costs from the run logs).
+
+Contacts are only published business data (Impressum and website), each with its source link. E-mail
+addresses are never guessed. LinkedIn profiles are checked by hand from a prepared search link;
+LinkedIn itself is not scraped.
+
+```bash
+python compare_models.py --eval google/gemini-3.1-flash-lite   # saves golden_eval.json for the method tab
+python score_leads.py google/gemini-3.1-flash-lite
+python build_sheet.py
+```

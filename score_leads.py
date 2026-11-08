@@ -166,7 +166,7 @@ def pick_email(emails, directors, domain):
         local = e.split("@")[0].lower()
         if local not in GENERIC_MAILBOXES and re.fullmatch(r"[a-zäöüß]+[._-][a-zäöüß]+|[a-z]\.?[a-zäöüß]{2,}", local):
             if not any(g in local for g in ("info", "kontakt", "service", "verwaltung")):
-                return e, "personal (name pattern)"
+                return e, "personal (staff)"
     if own:
         return own[0], "general only"
     return "", "none found"
@@ -211,6 +211,10 @@ def build(run, data_dir=DATA_DIR):
         row["units_quote"] = k.get("units_managed_quote", "") if k else ""
         row["units_source"] = k.get("units_managed_url", "") if k else ""
         row["contact_email"], row["email_type"] = "", ""
+        directors = [n.strip() for n in row["managing_directors"].split(",") if n.strip()]
+        row["contact_name"] = directors[0] if directors else ""
+        row["contact_role"] = "Managing director / owner" if directors else ""
+        row["contact_source"] = k.get("managing_directors_url", "") if (k and directors) else ""
 
         # 1. status
         if c["relevance"] == "excluded":

@@ -190,8 +190,11 @@ def evaluate(run, data_dir=DATA_DIR):
         if not ok:
             results.append({"domain": g["domain"], "field": g["field"], "expected": accepted, "got": got})
     scored = len(golden) - missing
-    return {"run": run, "golden_rows": len(golden), "scored": scored, "right": right,
-            "accuracy": round(right / scored, 3) if scored else None, "wrong": results}
+    result = {"run": run, "golden_rows": len(golden), "scored": scored, "right": right,
+              "accuracy": round(right / scored, 3) if scored else None, "wrong": results}
+    with open(os.path.join(data_dir, "golden_eval.json"), "w", encoding="utf-8") as f:
+        json.dump(result, f, indent=2, ensure_ascii=False)
+    return result
 
 
 def main():

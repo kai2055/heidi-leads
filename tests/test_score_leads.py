@@ -71,7 +71,7 @@ def test_email_matching_director_is_preferred():
 
 
 def test_name_like_email_then_general_then_none():
-    assert sl.pick_email(["info@x.de", "m.mueller@x.de"], "", "x.de")[1] == "personal (name pattern)"
+    assert sl.pick_email(["info@x.de", "m.mueller@x.de"], "", "x.de")[1] == "personal (staff)"
     assert sl.pick_email(["info@x.de", "kontakt@x.de"], "", "x.de") == ("info@x.de", "general only")
     assert sl.pick_email([], "", "x.de") == ("", "none found")
 
