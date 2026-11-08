@@ -24,6 +24,7 @@ Output: data/extractions_<model>-<version>.jsonl  raw answer, checks, tokens and
 Run
     python extract_kpis.py --model google/gemini-2.5-flash-lite --sample 20
     python extract_kpis.py --model google/gemini-2.5-flash-lite        # all websites
+    python extract_kpis.py --model google/gemini-2.5-flash-lite --recheck   # new checks, no cost
 """
 
 import argparse
@@ -189,10 +190,28 @@ def is_empty(kind, value):
     return value in ("unknown", "unclear", "no")
 
 
+def compact(text):
+    """Normalised text without spaces and dots, for loose 'is this word on the page' checks."""
+    return normalise(text).replace(" ", "").replace(".", "")
+
+
+# Text fields that list several items: each item must appear somewhere on the website
+LIST_FIELDS = ("association_member", "managing_directors")
+
+
 def check_answers(answers, pages):
-    """Return (checked answers, list of fields whose quote was not found)."""
+    """Return (checked answers, list of failed or trimmed checks).
+
+    Checks, in Python, after the model has answered:
+    - every quote must be on the website (case and spacing ignored)
+    - units_managed: the number must be inside its quote
+    - legal_form: the legal form itself must be inside its quote (no guessing from 'HRB')
+    - association_member, managing_directors: each listed item must appear on the website;
+      items that do not are removed ('<field>:trimmed'), and if none is left the field fails
+    """
     texts_by_url = {p["url"]: normalise(p["text"]) for p in pages}
     all_text = " ".join(texts_by_url.values())
+    all_compact = compact(all_text)
     checked, failed = {}, []
 
     for name, (kind, _) in FIELDS.items():
@@ -212,6 +231,15 @@ def check_answers(answers, pages):
         found = bool(q) and (q in texts_by_url.get(url, "") or q in all_text)
         if found and kind == "int":
             found = value in digits_in(quote)          # the number must be in the quote
+        if found and name == "legal_form":
+            found = compact(value) in compact(quote)   # 'GmbH' must be written in the quote
+        if found and name in LIST_FIELDS:
+            items = [i.strip() for i in value.split(",") if i.strip()]
+            kept = [i for i in items if compact(i) in all_compact]
+            if kept and len(kept) < len(items):
+                failed.append(f"{name}:trimmed")
+            value = ", ".join(kept)
+            found = bool(kept)
         if found:
             checked[name] = {"value": value, "quote": quote, "source_url": url}
         else:
@@ -342,6 +370,48 @@ def flatten(domain, place_ids, model, checked, failed, usage):
     return row
 
 
+# ----------------------------------------------------------------- files
+def read_records(path):
+    if not os.path.exists(path):
+        return []
+    with open(path, encoding="utf-8") as f:
+        return [json.loads(line) for line in f]
+
+
+def write_kpis_csv(records, csv_path):
+    rows = [flatten(r["domain"], r["place_ids"], r["model"], r["checked"], r["failed_checks"], r["usage"])
+            for r in records]
+    if rows:
+        with open(csv_path, "w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+            writer.writeheader()
+            writer.writerows(rows)
+    return rows
+
+
+def recheck(model, data_dir=DATA_DIR):
+    """Re-apply the current Python checks to the saved model answers. No API calls, no cost."""
+    label = run_label(model)
+    raw_path = os.path.join(data_dir, f"extractions_{label}.jsonl")
+    records = read_records(raw_path)
+    if not records:
+        raise SystemExit(f"No saved answers in {raw_path}.")
+    sites, _ = load_websites(data_dir)
+
+    before = sum(len(r["failed_checks"]) for r in records)
+    for rec in records:
+        pages = sites.get(rec["domain"], {"pages": []})["pages"]
+        rec["checked"], rec["failed_checks"] = check_answers(rec["raw_answer"], pages)
+    after = sum(len(r["failed_checks"]) for r in records)
+
+    with open(raw_path, "w", encoding="utf-8") as f:          # raw answers are kept unchanged
+        for rec in records:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+    write_kpis_csv(records, os.path.join(data_dir, f"kpis_{label}.csv"))
+    return {"run": label, "websites": len(records), "failed_or_trimmed_before": before,
+            "failed_or_trimmed_after": after}
+
+
 # ----------------------------------------------------------------- run
 def run(client, data_dir=DATA_DIR, sample=None, seed=SAMPLE_SEED, workers=WORKERS):
     slug = run_label(client.model)
@@ -413,19 +483,8 @@ def run(client, data_dir=DATA_DIR, sample=None, seed=SAMPLE_SEED, workers=WORKER
                         print(f"  extracted {finished}/{len(todo)} | cost so far: ${client.cost:.4f}")
 
     # rebuild the CSV from all records of this model (resume-safe)
-    records = []
-    with open(raw_path, encoding="utf-8") as f:
-        for line in f:
-            rec = json.loads(line)
-            if rec["domain"] in domains:
-                records.append(rec)
-    rows = [flatten(r["domain"], r["place_ids"], r["model"], r["checked"], r["failed_checks"], r["usage"])
-            for r in records]
-    if rows:
-        with open(csv_path, "w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            writer.writeheader()
-            writer.writerows(rows)
+    records = [r for r in read_records(raw_path) if r["domain"] in domains]
+    rows = write_kpis_csv(records, csv_path)
 
     n_fields = len(rows) * len(FIELDS)
     n_failed = sum(len(r["failed_checks"]) for r in records)
@@ -457,7 +516,13 @@ def main():
     parser.add_argument("--sample", type=int, default=None,
                         help="only a fixed random sample of N websites (same sample for every model)")
     parser.add_argument("--max-cost", type=float, default=2.0, help="hard stop in USD for this run")
+    parser.add_argument("--recheck", action="store_true",
+                        help="re-apply the Python checks to saved answers (no API calls, no cost)")
     args = parser.parse_args()
+
+    if args.recheck:
+        print(json.dumps(recheck(args.model), indent=2, ensure_ascii=False))
+        return
 
     load_dotenv()
     api_key = os.getenv("OPENROUTER_API_KEY")

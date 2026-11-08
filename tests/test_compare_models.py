@@ -86,3 +86,14 @@ def test_norm_ignores_spacing_and_legal_form_spelling():
     assert cm.norm("e. Kfm.") == cm.norm("e.Kfm.") == cm.norm("e.K.")
     assert cm.norm("mbH") == cm.norm("GmbH")
     assert cm.norm("Peter Wudtke") != cm.norm("Max Müller")
+
+
+def test_accept_adds_value_to_golden_row(tmp_path):
+    write_kpis(tmp_path, "m/a", {"a.de": {"legal_form": "Einzelunternehmen"}})
+    write_kpis(tmp_path, "m/b", {"a.de": {"legal_form": ""}})
+    cm.build("m/a", "m/b", data_dir=str(tmp_path))
+    mark_all(tmp_path / "model_comparison.csv", "a")
+    cm.make_golden(data_dir=str(tmp_path))
+    result = cm.accept("a.de", "legal_form", "", data_dir=str(tmp_path))
+    assert result["accepted"] == ["", "Einzelunternehmen"]
+    assert cm.evaluate(model_slug("m/b"), data_dir=str(tmp_path))["accuracy"] == 1.0

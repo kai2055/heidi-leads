@@ -230,3 +230,50 @@ def test_pages_from_directories_are_not_sent(tmp_path):
 
 def test_run_label_includes_prompt_version():
     assert ek.run_label("google/gemini-3.1-flash-lite", "v2") == "google-gemini-3-1-flash-lite-v2"
+
+
+# ----------------------------------------------------------------- value checks (v2)
+def test_legal_form_must_be_written_in_quote():
+    pages = PAGES + [{"page_type": "impressum", "url": "https://hv-test.de/rechtliches",
+                      "text": "Registergericht: AG Charlottenburg HRB 17126. Versicherung: Funk Versicherungsmakler GmbH"}]
+    guessed = answer(legal_form={"value": "GmbH", "quote": "Registergericht: AG Charlottenburg HRB 17126",
+                                 "source_url": "https://hv-test.de/rechtliches"})
+    checked, failed = ek.check_answers(guessed, pages)
+    assert "legal_form" in failed and checked["legal_form"]["value"] == ""
+
+    stated = answer(legal_form={"value": "GmbH", "quote": "Hausverwaltung Test GmbH",
+                                "source_url": "https://hv-test.de/"})
+    checked, failed = ek.check_answers(stated, pages)
+    assert failed == [] and checked["legal_form"]["value"] == "GmbH"
+
+
+def test_association_not_on_website_is_trimmed():
+    extra = answer(association_member={"value": "VDIV, Verwalterverband Berlin-Brandenburg",
+                                       "quote": "Mitglied im VDIV Berlin-Brandenburg",
+                                       "source_url": "https://hv-test.de/impressum"})
+    checked, failed = ek.check_answers(extra, PAGES)
+    assert checked["association_member"]["value"] == "VDIV"
+    assert failed == ["association_member:trimmed"]
+
+
+def test_director_not_on_website_fails():
+    invented = answer(managing_directors={"value": "Erika Muster", "quote": "Geschäftsführer: Max Müller",
+                                          "source_url": "https://hv-test.de/impressum"})
+    checked, failed = ek.check_answers(invented, PAGES)
+    assert "managing_directors" in failed and checked["managing_directors"]["value"] == ""
+
+
+def test_recheck_applies_new_rules_without_api_calls(tmp_path):
+    write_data(tmp_path, n_sites=1)
+    ek.run(client(FakeSession()), data_dir=str(tmp_path), workers=1)
+    raw_path = tmp_path / f"extractions_{ek.run_label('test/model-a')}.jsonl"
+    rec = json.loads(raw_path.read_text(encoding="utf-8").strip())
+    rec["raw_answer"]["legal_form"] = {"value": "GmbH", "quote": "Geschäftsführer: Max Müller",
+                                       "source_url": "https://hv-test.de/impressum"}
+    rec["checked"]["legal_form"] = rec["raw_answer"]["legal_form"]      # as if an old rule had accepted it
+    raw_path.write_text(json.dumps(rec, ensure_ascii=False) + "\n", encoding="utf-8")
+
+    result = ek.recheck("test/model-a", data_dir=str(tmp_path))
+    assert result["failed_or_trimmed_after"] == 1
+    rows = list(csv.DictReader(open(tmp_path / f"kpis_{ek.run_label('test/model-a')}.csv", encoding="utf-8")))
+    assert rows[0]["legal_form"] == ""

@@ -15,6 +15,9 @@ Model and prompt comparison, with a hand-checked golden set.
 4. Turn the checked rows into a golden set (the known right answers):
        python compare_models.py --golden
 
+   If a golden answer turns out too strict, add another accepted value:
+       python compare_models.py --accept hausverwaltung-nesari.de legal_form ""
+
 5. Score any later run against the golden set, with no new hand work:
        python compare_models.py --eval google/gemini-3.1-flash-lite
    (uses the current prompt version by default)
@@ -149,6 +152,25 @@ def make_golden(data_dir=DATA_DIR):
     return {"golden_rows": len(golden), "saved": path}
 
 
+def accept(domain, field, value, data_dir=DATA_DIR):
+    """Add one more accepted answer to the golden set (for a label that was too strict)."""
+    path = os.path.join(data_dir, "golden_set.csv")
+    with open(path, encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        if r["domain"] == domain and r["field"] == field:
+            values = set(json.loads(r["accepted"])) | {value}
+            r["accepted"] = json.dumps(sorted(values), ensure_ascii=False)
+            break
+    else:
+        raise SystemExit(f"No golden row for {domain} / {field}.")
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=["domain", "field", "accepted"])
+        writer.writeheader()
+        writer.writerows(rows)
+    return {"domain": domain, "field": field, "accepted": sorted(values)}
+
+
 # ----------------------------------------------------------------- 5. eval
 def evaluate(run, data_dir=DATA_DIR):
     with open(os.path.join(data_dir, "golden_set.csv"), encoding="utf-8") as f:
@@ -179,12 +201,16 @@ def main():
     parser.add_argument("--golden", action="store_true", help="turn the hand-checked sheet into a golden set")
     parser.add_argument("--eval", metavar="RUN", help="score a run against the golden set")
     parser.add_argument("--force", action="store_true", help="overwrite a hand-marked comparison sheet")
+    parser.add_argument("--accept", nargs=3, metavar=("DOMAIN", "FIELD", "VALUE"),
+                        help="add an accepted answer to the golden set (use \"\" for empty)")
     args = parser.parse_args()
 
     if args.score:
         result = score()
     elif args.golden:
         result = make_golden()
+    elif args.accept:
+        result = accept(*args.accept)
     elif args.eval:
         result = evaluate(args.eval)
     elif len(args.runs) == 2:
