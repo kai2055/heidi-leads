@@ -161,7 +161,7 @@ def test_run_writes_csv_and_summary(tmp_path):
     assert summary["websites_extracted"] == 5
     assert summary["failed_quote_checks"] == 0
     assert summary["cost_this_run_usd"] == pytest.approx(0.005)
-    rows = list(csv.DictReader(open(tmp_path / "kpis_test-model-a.csv", encoding="utf-8")))
+    rows = list(csv.DictReader(open(tmp_path / f"kpis_{ek.run_label('test/model-a')}.csv", encoding="utf-8")))
     assert rows[0]["units_managed"] == "1200"
     assert rows[0]["managing_directors_quote"] == "Geschäftsführer: Max Müller"
 
@@ -170,8 +170,8 @@ def test_same_sample_for_every_model(tmp_path):
     write_data(tmp_path, n_sites=30)
     ek.run(client(FakeSession(), model="test/a"), data_dir=str(tmp_path), sample=10, workers=1)
     ek.run(client(FakeSession(), model="test/b"), data_dir=str(tmp_path), sample=10, workers=1)
-    a = {r["domain"] for r in csv.DictReader(open(tmp_path / "kpis_test-a.csv", encoding="utf-8"))}
-    b = {r["domain"] for r in csv.DictReader(open(tmp_path / "kpis_test-b.csv", encoding="utf-8"))}
+    a = {r["domain"] for r in csv.DictReader(open(tmp_path / f"kpis_{ek.run_label('test/a')}.csv", encoding="utf-8"))}
+    b = {r["domain"] for r in csv.DictReader(open(tmp_path / f"kpis_{ek.run_label('test/b')}.csv", encoding="utf-8"))}
     assert a == b and len(a) == 10
 
 
@@ -214,3 +214,19 @@ def test_website_text_is_sent_as_user_data_not_system(tmp_path):
     messages = session.bodies[0]["messages"]
     assert "rund um die Uhr" not in messages[0]["content"]
     assert "rund um die Uhr" in messages[1]["content"]
+
+
+def test_pages_from_directories_are_not_sent(tmp_path):
+    write_data(tmp_path, n_sites=2)
+    with open(tmp_path / "pages.jsonl", "a", encoding="utf-8") as f:
+        f.write(json.dumps({"domain": "firmenfreund.info", "place_ids": ["P9"], "page_type": "home",
+                            "url": "https://makler-finden.com/123-firma", "text": "Vertreten durch Fremder Name"}) + "\n")
+    session = FakeSession()
+    summary = ek.run(client(session), data_dir=str(tmp_path), workers=1)
+    assert summary["websites_skipped_directory_only"] == 1
+    assert summary["websites_extracted"] == 2
+    assert all("Fremder Name" not in b["messages"][1]["content"] for b in session.bodies)
+
+
+def test_run_label_includes_prompt_version():
+    assert ek.run_label("google/gemini-3.1-flash-lite", "v2") == "google-gemini-3-1-flash-lite-v2"
