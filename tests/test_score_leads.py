@@ -22,9 +22,9 @@ def kpi(**values):
 # ----------------------------------------------------------------- points
 def test_size_points_bands_and_proxy():
     assert sl.size_points(50, 0)[0] == 5
-    assert sl.size_points(300, 0)[0] == 15
-    assert sl.size_points(1200, 0)[0] == 25
-    assert sl.size_points(8000, 0)[0] == 15
+    assert sl.size_points(300, 0)[0] == 12
+    assert sl.size_points(1200, 0)[0] == 20
+    assert sl.size_points(45000, 0)[0] == 25          # bigger is never worse on size
     assert sl.size_points(0, 56) == (10, "probably large (56 Google reviews, proxy)")
     assert sl.size_points(0, 12) == (0, "unknown")
 
@@ -35,7 +35,7 @@ def test_strong_lead_gets_A_with_explained_points():
             metering_provider="Techem", legal_form="e.K.", hiring="yes",
             association_member="Dachverband Deutscher Immobilienverwalter e.V.")
     fit, ease, parts = sl.score(k, reviews=5, likely_by_name=True, housing=False)
-    assert (fit, ease) == (60, 40)
+    assert (fit, ease) == (20 + 25 + 10 + 5, 10 + 10 + 5 + 10)
     assert sl.grade(fit + ease) == "A"
     assert "VDIV (Heidi partner)" in sl.explain(parts)
 
@@ -55,7 +55,7 @@ def test_commercial_only_gets_no_residential_points():
 def test_housing_company_counts_as_residential_and_no_vote():
     _, _, parts = sl.score(kpi(owns_housing_stock="yes"), 0, False, True)
     points = {label: p for label, p, _ in parts}
-    assert points["Residential"] == 20 and points["No owners' vote"] == 10
+    assert points["Residential"] == 25 and points["No owners' vote"] == 10
 
 
 def test_other_association_gets_half_points():
@@ -125,5 +125,5 @@ def test_build_assigns_status_type_and_grade(tmp_path):
     assert rows["P3"]["status"] == "excluded"
     assert rows["P4"]["grade"] == "U" and rows["P4"]["reason"] == "no website on Google"
     assert rows["P5"]["status"] == "excluded"
-    assert rows["P6"]["lead_type"] == "housing company" and rows["P6"]["grade"] in ("B", "C")
+    assert rows["P6"]["lead_type"] == "housing company" and rows["P6"]["grade"] == "A"   # 8,027 flats: size 25 + residential 25 + no vote 10
     assert summary["by_status"] == {"lead": 3, "competitor": 1, "excluded": 2}

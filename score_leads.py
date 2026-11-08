@@ -9,7 +9,8 @@ Combines everything collected so far:
 
 1. Status: lead, competitor or excluded (with the reason).
 2. Lead type: property manager, housing company, or unverified (no readable website).
-3. Score out of 100 = FIT (60) + EASE (40), every point explained in `score_reason`.
+3. Score out of 100 = FIT (65) + EASE (35), every point explained in `score_reason`.
+   Version 2 after hand validation: size no longer penalises very large firms, hiring halved.
 4. Grade: A >= 60, B 35-59, C < 35; U = unverified (not graded, sorted by Google reviews).
 5. Contact: managing director and the best published e-mail (personal before general).
 
@@ -72,14 +73,16 @@ def yes(value):
 
 # ----------------------------------------------------------------- scoring
 def size_points(units, reviews):
+    """Size measures value only (more units = more meters). Slower decisions of big firms are
+    already covered under EASE, so they are not punished here a second time (validation finding)."""
     if units > 0:
         if units < 100:
             return 5, f"{units:,} units"
         if units < 500:
-            return 15, f"{units:,} units"
+            return 12, f"{units:,} units"
         if units < 3000:
-            return 25, f"{units:,} units"
-        return 15, f"{units:,} units (very large: slower decisions)"
+            return 20, f"{units:,} units"
+        return 25, f"{units:,} units"
     if reviews >= REVIEWS_PROXY_MIN:
         return 10, f"probably large ({reviews} Google reviews, proxy)"
     return 0, "unknown"
@@ -95,9 +98,9 @@ def score(k, reviews, likely_by_name, housing):
     if yes(k.get("commercial_only")):
         pts, note = 0, "commercial only"
     elif housing or any(yes(k.get(f)) for f in ("offers_weg", "offers_rental", "offers_sev")):
-        pts, note = 20, "residential services confirmed"
+        pts, note = 25, "residential services confirmed"
     elif likely_by_name:
-        pts, note = 10, "name says property management"
+        pts, note = 12, "name says property management"
     else:
         pts, note = 0, "not confirmed"
     parts.append(("Residential", pts, note))
@@ -125,7 +128,8 @@ def score(k, reviews, likely_by_name, housing):
     owner_run = 10 if (any(f == form for f in OWNER_RUN_FORMS) or "inhaber" in director_quote) else 0
     parts.append(("Owner-run", owner_run, k.get("legal_form", "") if owner_run else ""))
 
-    hiring = 10 if yes(k.get("hiring")) else 0
+    # weak signal: 2 of 10 hand-checked A-leads showed no visible open jobs
+    hiring = 5 if yes(k.get("hiring")) else 0
     parts.append(("Hiring", hiring, "open jobs" if hiring else ""))
 
     assoc = str(k.get("association_member", "")).lower()
@@ -268,7 +272,6 @@ def build(run, data_dir=DATA_DIR):
         "graded_leads": sum(1 for r in leads if r["grade"] in ("A", "B", "C")),
         "share_A_of_graded": None,
         "contacts": dict(Counter(r["email_type"] for r in leads if r["grade"] in ("A", "B"))),
-        "known_customers_check": known_customers(rows),
     }
     graded = summary["graded_leads"]
     if graded:
@@ -276,16 +279,6 @@ def build(run, data_dir=DATA_DIR):
     with open(os.path.join(data_dir, "score_summary.json"), "w", encoding="utf-8") as f:
         json.dump(summary, f, indent=2, ensure_ascii=False)
     return summary
-
-
-def known_customers(rows, names=("werne", "vitolus", "gerhard")):
-    """Heidi's website names these customers; where are they in our table?"""
-    found = []
-    for r in rows:
-        if any(n in r["name"].lower() for n in names):
-            found.append({"name": r["name"], "status": r["status"], "grade": r["grade"],
-                          "score": r["total_score"], "reason": r["reason"]})
-    return found
 
 
 def main():

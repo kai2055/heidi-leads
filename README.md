@@ -14,8 +14,8 @@ Built for a case study. Work in progress.
 | 3. Crawl | Save each company's home, Impressum, services, about and careers pages as clean text | done (`crawl_websites.py`) |
 | 4. Extract | An LLM (via OpenRouter) fills the KPI facts, each answer with a quote and source link | done (`extract_kpis.py`) |
 | 5. Check | Reject any answer whose quote is not on the source website | done (inside `extract_kpis.py`) |
-| 6. Score | Rule-based Fit and Ease scores, then an A/B/C grade with a reason | planned |
-| 7. Validate | Hand-check a random sample and score known customers | planned |
+| 6. Score | Rule-based Fit and Ease scores, then an A/B/C/U grade with every point explained | done (`score_leads.py`) |
+| 7. Validate | Golden set for the extraction, random hand check of final grades | done (`compare_models.py`, `validate_sample.py`) |
 
 ## Step 1: collect
 
@@ -142,3 +142,34 @@ The tests use a fake Google API and cost nothing. They cover the grid, tile spli
 ## Data policy
 
 The API key (`.env`) and all collected data (`data/`) are excluded from the repository by `.gitignore`. Only code and documentation are public.
+
+## Step 6: scoring
+
+`score_leads.py` gives every company a status (lead, competitor, excluded, with the reason), a lead type
+(property manager, housing company, unverified) and, for leads with a readable website, a score out of 100:
+
+| Part | KPI | Points |
+|---|---|---|
+| Fit (65) | Size: units stated (<100: 5, 100-499: 12, 500-2,999: 20, 3,000+: 25); otherwise 30+ Google reviews = 10 ("probably large") | 25 |
+| | Residential focus: WEG / rental / SEV confirmed or housing company 25, name only 12, commercial only 0 | 25 |
+| | Digital: tenant portal 4, online repair form 3, software named 3 | 10 |
+| | Metering hook: names its current metering provider | 5 |
+| Ease (35) | No owners' vote needed (rental management or owns the flats) | 10 |
+| | Owner-run (e.K., GbR, Einzelunternehmen, Inhaber) | 10 |
+| | Hiring (weak signal) | 5 |
+| | Association: VDIV (Heidi partner) 10, other 5 | 10 |
+
+Grades: A >= 60, B 35-59, C < 35, U = unverified (no readable website; not graded, sorted by Google reviews).
+Every row has a `score_reason` column listing each point and why.
+
+Design decisions backed by tests on the data:
+- Google reviews as size proxy: Spearman 0.54 (n = 103), but they only separate very large firms
+  (median 56 reviews at 3,000+ units vs 9-12 below), so reviews give at most 10 points (`analyze_size_proxy.py`).
+- Version 2 of the weights after hand validation: size no longer penalises very large firms (slowness is
+  already in Ease), and hiring was halved after 2 of 10 hand-checked A-leads showed no visible open jobs.
+
+## Step 7: validation
+
+- Extraction: model and prompt choice scored against a hand-checked golden set (22 hard cases).
+- Final grades: 30 random rows (10 A, 10 C, 10 excluded by the AI), checked by hand on the live websites
+  (`validate_sample.py`).
