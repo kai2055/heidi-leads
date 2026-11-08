@@ -12,8 +12,8 @@ Built for a case study. Work in progress.
 | 2a. Filter | Label each place: likely property manager, unclear, competitor, or excluded (with reason) | done (`filter_candidates.py`) |
 | 2b. Details | Add website and phone: all likely candidates plus a random sample of unclear ones, within the free allowance | done (`fetch_details.py`) |
 | 3. Crawl | Save each company's home, Impressum, services, about and careers pages as clean text | done (`crawl_websites.py`) |
-| 4. Extract | An LLM fills the KPI columns, each answer with a quote and source link | planned |
-| 5. Check | Reject any answer whose quote is not on the source page | planned |
+| 4. Extract | An LLM (via OpenRouter) fills the KPI facts, each answer with a quote and source link | done (`extract_kpis.py`) |
+| 5. Check | Reject any answer whose quote is not on the source website | done (inside `extract_kpis.py`) |
 | 6. Score | Rule-based Fit and Ease scores, then an A/B/C grade with a reason | planned |
 | 7. Validate | Hand-check a random sample and score known customers | planned |
 
@@ -82,6 +82,26 @@ python crawl_websites.py              # all websites
 ```
 
 Output: `data/pages.jsonl` (one line per page: text, URL, page type, e-mail addresses shown) and `data/crawl_status.csv` (one row per website).
+
+## Steps 4 and 5: AI extraction with quote check
+
+`extract_kpis.py` sends each website's saved pages to an LLM through OpenRouter and asks 15 fixed questions (property manager or not, WEG / rental / SEV services, units managed, tenant portal, online repair form, software, metering provider, hiring, growth, association membership, managing directors, legal form).
+
+- Every answer must include a short quote copied from the page and the page URL, or be "unknown".
+- Python then checks every quote against the saved page text. If the quote is not on the website, or a unit count is not in its quote, the answer is reset to "unknown" and listed in `failed_checks`.
+- Website text is passed as user data, and the system prompt says never to follow instructions inside it.
+- Strict JSON schema output, with a fallback to plain JSON mode for models that do not support schemas.
+- Hard stop on cost (`--max-cost`, USD), resume per model, 4 requests in parallel.
+
+Model choice is tested, not assumed: the same fixed random sample of websites (`--sample`, seed 7) is run on each candidate model, and the answers are compared and hand-checked before the full run.
+
+```bash
+python extract_kpis.py --model google/gemini-2.5-flash-lite --sample 20
+python extract_kpis.py --model <second model id> --sample 20
+python extract_kpis.py --model <chosen model id>        # all websites
+```
+
+Output per model: `data/kpis_<model>.csv`, `data/extractions_<model>.jsonl` (raw answers, checks, tokens, cost) and `data/extract_log_<model>.json`.
 
 ### Cost safety
 
